@@ -1,10 +1,10 @@
 from gensim.models import FastText
-import numpy as np
 from soynlp.hangle import compose, decompose, character_is_korean
 import re
 
 
-model_fname = '/Users/kintch/Downloads/jamoed_wiki_n_namu_based_model'
+model_fname = '/Users/kintch/Library/CloudStorage/Dropbox/Mac/Downloads/jamoed_wiki_n_namu_based_model'
+
 model = FastText.load(model_fname)
 
 def jamo_sentence(sent):
