@@ -1,90 +1,125 @@
-import pandas as pd
-import gpt_jury
-import numpy as np
-# import ftxt_embedding
 import random
-from tqdm import tqdm
-from itertools import product
 
-# import word list(Kim's)
-test_source = '/Users/kintch/Library/CloudStorage/Dropbox/sj/2023-2/연구/[진행중]어휘 난도_chatgpt/data for evaluation/김한샘어휘_20220902.xlsx'
-df = pd.read_excel(test_source)
-df.head()
-df_dd = df.drop_duplicates(subset=['단어'])
+from prepare_ft_data import MakeJsonlForFinetune
+import openai_finetune
+import openai
+import word_variable
+from check_accuracy import inference_from_test_pair, calc_accuracy
+import pandas as pd
+import pickle
+
+# NON-FINETUNE
+## Vanilla MODEL (en)
+gpt_ko_40 = MakeJsonlForFinetune(model="gpt-3.5-turbo", lang="en", word_num=105,
+                                     random_seed=k,
+                                     only_high_and_low_lv=False)
+train_pair, valid_pair, test_pair = gpt_ko_40.make_pair
+train, valid, test = gpt_ko_40.make_prompt_list()
+train_dir, valid_dir, test_dir = gpt_ko_40.save_to_jsonl()
+
+df = inference_from_test_pair(test_pair, infer_model="gpt-4",
+                              input_token_price_p1k=0.03, output_token_price_p1k=0.06,
+                              # input_token_price_p1k=0.0015, output_token_price_p1k=0.002,
+                              doubled_inference=False, ft_bool=False)  #if lang='en', doubled_inference=False
+
+
+## Vanilla MODEL (ko)
+gpt_ko_40 = MakeJsonlForFinetune(model="gpt-3.5-turbo", lang="ko", word_num=50,
+                                 random_seed=0,
+                                 only_high_and_low_lv=False, include_similar=True)
+train_pair, valid_pair, test_pair, train_sim_pair, valid_sim_pair, test_sim_pair = gpt_ko_40.make_pair
+train, valid, test = gpt_ko_40.make_prompt_list()
+train_dir, valid_dir, test_dir = gpt_ko_40.save_to_jsonl()
+import random
+
+train_sim_pair
+
+with open("./results/test_pair_common_from50.pickle", 'rb') as file:
+    test_pair_common_from50 = pickle.load(file)
+
+df = inference_from_test_pair(test_pair_common_from50, infer_model="gpt-4",
+                              input_token_price_p1k=0.03, output_token_price_p1k=0.06,
+                              # input_token_price_p1k=0.0015, output_token_price_p1k=0.002,
+                              doubled_inference=True, ft_bool=False)  #if lang='en', doubled_inference=False
 len(df)
-len(df_dd)
-# compare
-word_list_dd = df_dd['단어'].tolist()
+set_dir = "./results/gpt-4_ko_commontest.csv"
+df.to_csv(set_dir, encoding='utf-8')
+df = pd.read_csv(set_dir)
+len(df)
+acc = calc_accuracy(df, word_variable.df_kim, lang='ko')
+acc
 
-test=['단어','어휘','문장','낱말','문법']
-# (funny) better accuracy in chatgpt than Embedding Vector
-# You are a machine that can compute cosine similarity.
-# test=['단어','어휘','문장','낱말','문법']
-# 1. Pick the two words with the highest similarity to the elements in the test.
-# 2. Don't explain, just give me the correct answer.
-
-df_12high = df_dd['단어'][(df_dd.학년군 == '1~2') & (df_dd.수준별등급 == '상')].tolist()
-df_12middle = df_dd['단어'][(df_dd.학년군 == '1~2') & (df_dd.수준별등급 == '중')].tolist()
-df_12low = df_dd['단어'][(df_dd.학년군 == '1~2') & (df_dd.수준별등급 == '하')].tolist()
-
-# USING gpt-3-turbo
-dff_res = list()
-cost_sum3 = float()
-for x in tqdm(range(10)):
-    m = random.randint(0, len(df_12high))
-    n = random.randint(0, len(df_12low))
-    tmp, cost = gpt_jury.word_dff_jury(df_12high[m], df_12low[n])
-    dff_res.append([df_12high[m], df_12low[n], tmp])  #, "gpt-4"
-    cost_sum3 += cost
-
-for k in dff_res:
-    print(k)
-
-# USING gpt-4
-res_tmp = list()
-cost_sum = float()
-for k in dff_res:
-    answer, cost = gpt_jury.word_dff_jury(k[0], k[1], "gpt-4")
-    res_tmp.append([k[0], k[1], answer[0]])
-    cost_sum += cost
-
-cost_sum
-
-for k in res_tmp:
-    print(k)
-
-#------------------------------------------------------------------------------
-# retry in Kuperman
-df_test = pd.read_excel('/Users/kintch/Library/CloudStorage/Dropbox/sj/2023-2/연구/[진행중]어휘 난도_chatgpt/data for evaluation/AoA_ratings_Kuperman_et_al_BRM.xlsx')
-df_test.head()
-
-# extract random words (n=50)
-word_list_kuperman = [df_test.Word[k] for k in np.random.choice(range(0, len(df_test)+1), 200, replace = False)]
-len(word_list_kuperman)
-
-# gpt-based comparison
-dff_res=list()
-cost_sum=float()
-for word1, word2 in tqdm(list(product(*[word_list_kuperman, word_list_kuperman]))):
-    if word1 != word2:
-        answer, cost = gpt_jury.word_dff_jury(word1, word2)  # not "gpt-4" "gpt-3.5-turbo
-        dff_res.append([word1,
-                        word2,
-                        answer])
-        cost_sum += cost
-        print(cost_sum)
+# FINETUNED
+## Finetuned MODEL (ko)
+gpt_ko_40 = MakeJsonlForFinetune(model="babbage-002", lang="ko", word_num=80,
+                                 random_seed=0,
+                                 only_high_and_low_lv=False, include_similar=False)
+train_pair, valid_pair, test_pair = gpt_ko_40.make_pair
+train, valid, test = gpt_ko_40.make_prompt_list()
+train_dir, valid_dir, test_dir = gpt_ko_40.save_to_jsonl()
 
 
+# EVALUATE
+df = inference_from_test_pair(test_pair_common_from50, infer_model="ft:babbage-002:pickler:bab-ko-243-epoch5:83B1m0K5",
+                              input_token_price_p1k=0.0016, output_token_price_p1k=0.0016,
+                              doubled_inference=True, ft_bool=True)  #if lang='en', doubled_inference=False
+len(df)
+set_dir = "./results/ft_gpt-3.5_ko_34_True_e3.csv"
+df.to_csv(set_dir, encoding='utf-8')
+df = pd.read_csv(set_dir)
+acc = calc_accuracy(df, word_variable.df_kim, lang='ko')
+acc
 
-def check_true_ratio(dff_res):
-    for k in range(len(dff_res)):
-        if len(dff_res[k]) == 3:
-            if dff_res[k][1] == dff_res[k][2]:
-                dff_res[k].append(1)
-            else:
-                dff_res[k].append(0)
+# Finetuned MODEL (en)
+gpt_ko_40 = MakeJsonlForFinetune(model="gpt-3.5-turbo", lang="en", word_num=34,
+                                 random_seed=0,
+                                 only_high_and_low_lv=False)
+train_pair, valid_pair, test_pair = gpt_ko_40.make_pair
+train, valid, test = gpt_ko_40.make_prompt_list()
+train_dir, valid_dir, test_dir = gpt_ko_40.save_to_jsonl()
 
-    sum_true = sum([k[3] for k in dff_res])
-    return (sum_true)/(len(dff_res))
+# ----------------------------------------------------------
+# UPLOAD & FINE-TUNE
+# ----------------------------------------------------------
+# UPLOAD
+train_upload_info = openai_finetune.ft_upload_file(train_dir)
+valid_upload_info = openai_finetune.ft_upload_file(valid_dir)
 
+train_upload_info['id']
+valid_upload_info['id']
 
+# FINE-TUNE
+ft_info = openai.FineTuningJob.create(
+    training_file=train_upload_info['id'],
+    validation_file=valid_upload_info['id'],
+    model="babbage-002",
+    hyperparameters={
+        "n_epochs": 3
+    },
+    suffix="bab-ko-80_e3_nohl",
+)
+
+# Check finetuning status
+openai.FineTuningJob.retrieve("ftjob-Z3IIp2DZ8bW49nySgsuXwY7u")
+
+# Cancel a job
+openai.FineTuningJob.cancel(ft_info['id'])
+openai.FineTuningJob.cancel("ftjob-JttV5qVV98msiF5H9xCc1dZJ")
+
+# Delete a fine-tuned model (must be an owner of the org the model was created in)
+openai.Model.delete("ft:gpt-3.5-turbo:acemeco:suffix:abc123")
+
+train_upload_info['filename']
+valid_upload_info['filename']
+
+# curl https://api.openai.com/v1/fine_tuning/jobs \
+#   -H "Content-Type: application/json" \
+#   -H "Authorization: Bearer $OPENAI_API_KEY" \
+#   -d '{
+#     "training_file": "file-abc123",
+#     "validation_file": "file-abc123",
+#     "model": "gpt-3.5-turbo",
+#     "hyperparameters": {
+#       "n_epochs": 1
+#     }
+#   }'
